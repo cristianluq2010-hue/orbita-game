@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Órbita</title>
+<style>
+:root{
+  --bg:#03050d;--cyan:#38f5ff;--blue:#4d7cff;--pink:#ff3cac;
+  --white:#eafcff;--asteroid:#ff5577;--planet:#172b68;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);
+font-family:Arial,Helvetica,sans-serif;color:var(--white)}
+canvas{display:block;width:100vw;height:100vh;touch-action:none;cursor:pointer}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:2}
+#score{position:absolute;top:20px;left:50%;transform:translateX(-50%);
+font-size:clamp(24px,5vw,38px);font-weight:800;letter-spacing:4px;
+text-shadow:0 0 12px var(--cyan)}
+#direction{position:absolute;top:67px;left:50%;transform:translateX(-50%);
+font-size:11px;opacity:.5;letter-spacing:3px}
+.screen{position:fixed;inset:0;z-index:5;display:flex;align-items:center;
+justify-content:center;flex-direction:column;text-align:center;
+background:radial-gradient(circle at center,rgba(20,50,110,.15),transparent 45%),
+rgba(3,5,13,.72);backdrop-filter:blur(3px);cursor:pointer}
+.hidden{display:none!important}
+h1{margin:0 0 12px;font-size:clamp(58px,14vw,120px);line-height:.9;
+letter-spacing:12px;font-weight:900;color:var(--cyan);
+text-shadow:0 0 10px var(--cyan),0 0 35px rgba(56,245,255,.55)}
+.subtitle{margin:0 0 42px;font-size:clamp(13px,3vw,18px);
+letter-spacing:5px;opacity:.65;text-transform:uppercase}
+.prompt{font-size:clamp(15px,4vw,20px);letter-spacing:4px;
+text-transform:uppercase;animation:pulse 1.5s ease-in-out infinite}
+.hint{margin-top:16px;font-size:12px;opacity:.4;letter-spacing:2px}
+.final-score{font-size:clamp(22px,5vw,34px);margin-bottom:8px;letter-spacing:3px}
+.best{margin-bottom:40px;opacity:.6;letter-spacing:3px}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="score">0</div>
+  <div id="direction">ÓRBITA →</div>
+</div>
+
+<div id="startScreen" class="screen">
+  <h1>ÓRBITA</h1>
+  <div class="subtitle">Sobrevive. Gira. Recoge.</div>
+  <div class="prompt">Pulsa para empezar</div>
+  <div class="hint">Clic · Toque · Espacio</div>
+</div>
+
+<div id="gameOverScreen" class="screen hidden">
+  <h1 style="font-size:clamp(45px,11vw,90px)">FIN</h1>
+  <div class="final-score">PUNTUACIÓN: <span id="finalScore">0</span></div>
+  <div class="best">RÉCORD: <span id="bestScore">0</span></div>
+  <div class="prompt">Pulsa para reiniciar</div>
+  <div class="hint">Clic · Toque · Espacio</div>
+</div>
+
+<script>
+"use strict";
+
+/* =========================
+   CONFIGURACIÓN
+========================= */
+const CONFIG = {
+  orbitSpeed: 0.035,
+  speedIncrease: 0.0035,
+  asteroidInterval: 1050,
+  minAsteroidInterval: 360,
+  asteroidSpeed: 2.2,
+  asteroidSpeedIncrease: 0.012,
+  doubleAsteroidChance: 0.12,
+  orbitRadiusRatio: 0.30,
+  planetRadiusRatio: 0.105,
+  starRadius: 6
+};
+
+const COLORS = {
+  background:"#03050d",
+  cyan:"#38f5ff",
+  blue:"#4d7cff",
+  pink:"#ff3cac",
+  white:"#eafcff",
+  asteroid:"#ff5577",
+  planet:"#172b68"
+};
+
+/* =========================
+   ELEMENTOS
+========================= */
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const startScreen = document.getElementById("startScreen");
+const gameOverScreen = document.getElementById("gameOverScreen");
+const scoreElement = document.getElementById("score");
+const directionElement = document.getElementById("direction");
+const finalScoreElement = document.getElementById("finalScore");
+const bestScoreElement = document.getElementById("bestScore");
+
+/* =========================
+   ESTADO
+========================= */
+let W = 0, H = 0, DPR = 1;
+let gameState = "start";
+let score = 0;
+let bestScore = 0;
+let angle = -Math.PI / 2;
+let direction = 1;
+let asteroids = [];
+let stars = [];
+let particles = [];
+let trail = [];
+let backgroundStars = [];
+let asteroidTimer = 0;
+let elapsed = 0;
+let lastTime = 0;
+
+/* =========================
+   RÉCORD SEGURO
+========================= */
+try {
+  bestScore = Number(localStorage.getItem("orbitaBest") || 0);
+} catch (e) {
+  bestScore = 0;
+}
+bestScoreElement.textContent = bestScore;
+
+/* =========================
+   UTILIDADES
+========================= */
+function rand(min,max){
+  return Math.random() * (max-min) + min;
+}
+
+function clamp(value,min,max){
+  return Math.max(min,Math.min(max,value));
+}
+
+function distance(x1,y1,x2,y2){
+  return Math.hypot(x2-x1,y2-y1);
+}
+
+function center(){
+  return {x:W/2,y:H/2};
+}
+
+function planetRadius(){
+  return Math.min(W,H) * CONFIG.planetRadiusRatio;
+}
+
+function orbitRadius(){
+  return Math.min(W,H) * CONFIG.orbitRadiusRatio;
+}
+
+function shipPosition(){
+  const c = center();
+  const r = orbitRadius();
+  return {
+    x:c.x + Math.cos(angle)*r,
+    y:c.y + Math.sin(angle)*r
+  };
+}
+
+/* =========================
+   TAMAÑO DEL CANVAS
+========================= */
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1,2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.max(1,Math.floor(W*DPR));
+  canvas.height = Math.max(1,Math.floor(H*DPR));
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  createBackgroundStars();
+}
+
+window.addEventListener("resize",resize);
+
+/* =========================
+   FONDO
+========================= */
+function createBackgroundStars(){
+  backgroundStars = [];
+  const amount = Math.floor((W*H)/6500);
+  for(let i=0;i<amount;i++){
+    backgroundStars.push({
+      x:Math.random()*W,
+      y:Math.random()*H,
+      r:rand(.3,1.4),
+      alpha:rand(.15,.8),
+      twinkle:rand(.5,2.5),
+      phase:rand(0,Math.PI*2)
+    });
+  }
+}
+
+function drawBackground(time){
+  ctx.fillStyle = COLORS.background;
+  ctx.fillRect(0,0,W,H);
+
+  const c = center();
+  const gradient = ctx.createRadialGradient(
+    c.x,c.y,0,c.x,c.y,Math.max(W,H)*.7
+  );
+  gradient.addColorStop(0,"rgba(25,55,130,.16)");
+  gradient.addColorStop(.45,"rgba(8,15,40,.08)");
+  gradient.addColorStop(1,"rgba(0,0,0,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0,0,W,H);
+
+  for(const star of backgroundStars){
+    const alpha = star.alpha +
+      Math.sin(time*.001*star.twinkle+star.phase)*.15;
+    ctx.globalAlpha = clamp(alpha,.05,1);
+    ctx.fillStyle = COLORS.white;
+    ctx.beginPath();
+    ctx.arc(star.x,star.y,star.r,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* =========================
+   PLANETA Y ÓRBITA
+========================= */
+function drawOrbit(){
+  const c = center();
+  const r = orbitRadius();
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(56,245,255,.13)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3,8]);
+  ctx.beginPath();
+  ctx.arc(c.x,c.y,r,0,Math.PI*2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPlanet(){
+  const c = center();
+  const r = planetRadius();
+
+  const glow = ctx.createRadialGradient(
+    c.x,c.y,r*.3,c.x,c.y,r*2.7
+  );
+  glow.addColorStop(0,"rgba(56,245,255,.28)");
+  glow.addColorStop(.45,"rgba(77,124,255,.12)");
+  glow.addColorStop(1,"rgba(0,0,0,0)");
+
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(c.x,c.y,r*2.7,0,Math.PI*2);
+  ctx.fill();
+
+  const planet = ctx.createRadialGradient(
+    c.x-r*.35,c.y-r*.4,r*.05,c.x,c.y,r
+  );
+  planet.addColorStop(0,"#3157bd");
+  planet.addColorStop(.55,COLORS.planet);
+  planet.addColorStop(1,"#080d25");
+
+  ctx.fillStyle = planet;
+  ctx.beginPath();
+  ctx.arc(c.x,c.y,r,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.globalAlpha = .35;
+  ctx.strokeStyle = COLORS.cyan;
+  ctx.lineWidth = 1;
+
+  for(let i=-2;i<=2;i++){
+    ctx.beginPath();
+    ctx.ellipse(
+      c.x,c.y+i*r*.22,
+      r*.82,r*(.15+Math.abs(i)*.025),
+      -.25,0,Math.PI*2
+    );
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  ctx.strokeStyle = "rgba(56,245,255,.55)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(c.x,c.y,r,0,Math.PI*2);
+  ctx.stroke();
+}
+
+/* =========================
+   NAVE
+========================= */
+function drawShip(){
+  const ship = shipPosition();
+
+  for(let i=0;i<trail.length;i++){
+    const p = trail[i];
+    const alpha = (i/trail.length)*.35;
+    const size = 2+(i/trail.length)*3;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = COLORS.cyan;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,size,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  const rotation = angle + direction*Math.PI/2;
+
+  ctx.save();
+  ctx.translate(ship.x,ship.y);
+  ctx.rotate(rotation);
+
+  ctx.shadowColor = COLORS.cyan;
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = COLORS.white;
+
+  ctx.beginPath();
+  ctx.moveTo(13,0);
+  ctx.lineTo(-9,-7);
+  ctx.lineTo(-5,0);
+  ctx.lineTo(-9,7);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = COLORS.cyan;
+  ctx.beginPath();
+  ctx.arc(2,0,3,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle = COLORS.pink;
+  ctx.beginPath();
+  ctx.moveTo(-7,-3);
+  ctx.lineTo(-16,0);
+  ctx.lineTo(-7,3);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* =========================
+   ASTEROIDES
+========================= */
+function createAsteroid(){
+  const c = center();
+  const margin = 80;
+  const side = Math.floor(Math.random()*4);
+  let x,y;
+
+  if(side===0){x=rand(-margin,W+margin);y=-margin;}
+  else if(side===1){x=W+margin;y=rand(-margin,H+margin);}
+  else if(side===2){x=rand(-margin,W+margin);y=H+margin;}
+  else{x=-margin;y=rand(-margin,H+margin);}
+
+  const dx = c.x-x;
+  const dy = c.y-y;
+  const len = Math.hypot(dx,dy);
+  const speed =
+    CONFIG.asteroidSpeed +
+    elapsed*CONFIG.asteroidSpeedIncrease/1000;
+
+  const size = rand(9,17);
+  const sides = Math.floor(rand(7,10));
+  const points = [];
+
+  for(let i=0;i<sides;i++){
+    points.push({
+      angle:(Math.PI*2/sides)*i,
+      radius:size*rand(.75,1.25)
+    });
+  }
+
+  asteroids.push({
+    x,y,
+    vx:dx/len*speed,
+    vy:dy/len*speed,
+    size,
+    rotation:rand(0,Math.PI*2),
+    rotationSpeed:rand(-.025,.025),
+    points
+  });
+}
+
+function updateAsteroids(dt){
+  for(let i=asteroids.length-1;i>=0;i--){
+    const a = asteroids[i];
+    a.x += a.vx*dt;
+    a.y += a.vy*dt;
+    a.rotation += a.rotationSpeed*dt;
+
+    const c = center();
+    if(distance(a.x,a.y,c.x,c.y)<planetRadius()*.65){
+      asteroids.splice(i,1);
+    }
+  }
+}
+
+function drawAsteroid(a){
+  ctx.save();
+  ctx.translate(a.x,a.y);
+  ctx.rotate(a.rotation);
+
+  ctx.shadowColor = COLORS.asteroid;
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = "rgba(255,55,110,.15)";
+
+  ctx.beginPath();
+  a.points.forEach((p,i)=>{
+    const x = Math.cos(p.angle)*p.radius;
+    const y = Math.sin(p.angle)*p.radius;
+    if(i===0)ctx.moveTo(x,y);
+    else ctx.lineTo(x,y);
+  });
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.shadowBlur = 5;
+  ctx.strokeStyle = COLORS.asteroid;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* =========================
+   ESTRELLAS
+========================= */
+function createStar(){
+  stars.push({
+    angle:Math.random()*Math.PI*2,
+    radius:orbitRadius(),
+    pulse:Math.random()*Math.PI*2,
+    rotation:Math.random()*Math.PI
+  });
+}
+
+function drawStar(star,time){
+  const c = center();
+  const pulse = 1+Math.sin(time*.005+star.pulse)*.18;
+  const x = c.x+Math.cos(star.angle)*star.radius;
+  const y = c.y+Math.sin(star.angle)*star.radius;
+
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(star.rotation+time*.001);
+  ctx.shadowColor = COLORS.cyan;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = COLORS.white;
+
+  ctx.beginPath();
+  for(let i=0;i<10;i++){
+    const radius =
+      i%2===0 ? CONFIG.starRadius*pulse :
+      CONFIG.starRadius*.35*pulse;
+    const a = -Math.PI/2+i*Math.PI/5;
+    const px = Math.cos(a)*radius;
+    const py = Math.sin(a)*radius;
+    if(i===0)ctx.moveTo(px,py);
+    else ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/* =========================
+   PARTÍCULAS
+========================= */
+function spawnExplosion(x,y){
+  for(let i=0;i<45;i++){
+    const a = Math.random()*Math.PI*2;
+    const speed = rand(1,6);
+    particles.push({
+      x,y,
+      vx:Math.cos(a)*speed,
+      vy:Math.sin(a)*speed,
+      life:1,
+      decay:rand(.018,.045),
+      size:rand(1,4),
+      color:Math.random()<.5 ? COLORS.cyan : COLORS.pink
+    });
+  }
+}
+
+function updateParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p = particles[i];
+    p.x += p.vx*dt;
+    p.y += p.vy*dt;
+    p.vx *= .98;
+    p.vy *= .98;
+    p.life -= p.decay*dt;
+
+    if(p.life<=0)particles.splice(i,1);
+  }
+}
+
+function drawParticles(){
+  for(const p of particles){
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.size,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+}
+
+/* =========================
+   COLISIONES
+========================= */
+function checkCollisions(){
+  const ship = shipPosition();
+
+  for(const a of asteroids){
+    if(distance(ship.x,ship.y,a.x,a.y)<a.size+8){
+      spawnExplosion(ship.x,ship.y);
+      endGame();
+      return;
+    }
+  }
+
+  for(let i=stars.length-1;i>=0;i--){
+    const star = stars[i];
+    const c = center();
+    const sx = c.x+Math.cos(star.angle)*star.radius;
+    const sy = c.y+Math.sin(star.angle)*star.radius;
+
+    if(distance(ship.x,ship.y,sx,sy)<17){
+      stars.splice(i,1);
+      score++;
+      scoreElement.textContent = score;
+    }
+  }
+}
+
+/* =========================
+   BUCLE DEL JUEGO
+========================= */
+function update(dt){
+  elapsed += dt*16.67;
+
+  const speed =
+    CONFIG.orbitSpeed +
+    Math.floor(score/10)*CONFIG.speedIncrease;
+
+  angle += direction*speed*dt;
+
+  const ship = shipPosition();
+  trail.push({x:ship.x,y:ship.y});
+  if(trail.length>18)trail.shift();
+
+  asteroidTimer += dt*16.67;
+
+  const interval = Math.max(
+    CONFIG.minAsteroidInterval,
+    CONFIG.asteroidInterval-score*9
+  );
+
+  if(asteroidTimer>=interval){
+    asteroidTimer=0;
+    createAsteroid();
+
+    if(Math.random()<
+      CONFIG.doubleAsteroidChance+score*.002){
+      createAsteroid();
+    }
+  }
+
+  if(stars.length===0){
+    createStar();
+  }
+
+  updateAsteroids(dt);
+  updateParticles(dt);
+  checkCollisions();
+
+  directionElement.textContent =
+    direction===1 ? "ÓRBITA →" : "ÓRBITA ←";
+}
+
+function draw(time){
+  drawBackground(time);
+  drawOrbit();
+
+  for(const star of stars)drawStar(star,time);
+  for(const asteroid of asteroids)drawAsteroid(asteroid);
+
+  drawPlanet();
+  drawParticles();
+
+  if(gameState==="playing")drawShip();
+}
+
+function loop(time){
+  const delta =
+    Math.min((time-lastTime)/16.67 || 1,2);
+
+  lastTime=time;
+
+  if(gameState==="playing"){
+    update(delta);
+  }else{
+    updateParticles(delta);
+  }
+
+  draw(time);
+  requestAnimationFrame(loop);
+}
+
+/* =========================
+   INICIO / FIN
+========================= */
+function startGame(){
+  score=0;
+  angle=-Math.PI/2;
+  direction=1;
+  asteroids=[];
+  stars=[];
+  particles=[];
+  trail=[];
+  elapsed=0;
+  asteroidTimer=0;
+
+  scoreElement.textContent="0";
+  directionElement.textContent="ÓRBITA →";
+
+  createStar();
+
+  gameState="playing";
+  startScreen.classList.add("hidden");
+  gameOverScreen.classList.add("hidden");
+}
+
+function endGame(){
+  if(gameState!=="playing")return;
+
+  gameState="gameover";
+
+  if(score>bestScore){
+    bestScore=score;
+    try{
+      localStorage.setItem("orbitaBest",String(bestScore));
+    }catch(e){}
+  }
+
+  finalScoreElement.textContent=score;
+  bestScoreElement.textContent=bestScore;
+
+  setTimeout(()=>{
+    if(gameState==="gameover"){
+      gameOverScreen.classList.remove("hidden");
+    }
+  },500);
+}
+
+/* =========================
+   CONTROL
+========================= */
+function handleInput(event){
+  if(event.type==="keydown"){
+    if(event.code!=="Space")return;
+    event.preventDefault();
+  }else{
+    event.preventDefault();
+  }
+
+  if(gameState==="start"){
+    startGame();
+  }else if(gameState==="gameover"){
+    startGame();
+  }else if(gameState==="playing"){
+    direction*=-1;
+    directionElement.textContent =
+      direction===1 ? "ÓRBITA →" : "ÓRBITA ←";
+  }
+}
+
+window.addEventListener(
+  "pointerdown",
+  handleInput,
+  {passive:false}
+);
+
+window.addEventListener("keydown",handleInput);
+
+/* =========================
+   ARRANQUE
+========================= */
+resize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
