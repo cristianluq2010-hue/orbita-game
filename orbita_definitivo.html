@@ -8,20 +8,38 @@
 <style>
 :root{
   --bg:#03050d;--cyan:#38f5ff;--blue:#4d7cff;--pink:#ff3cac;
-  --white:#eafcff;--asteroid:#ff5577;--planet:#172b68;
+  --white:#eafcff;--asteroid:#ff5577;--planet:#172b68;--gold:#ffd84d;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);
-font-family:Arial,Helvetica,sans-serif;color:var(--white)}
+font-family:Arial,Helvetica,sans-serif;color:var(--white);
+-webkit-user-select:none;user-select:none}
 canvas{display:block;width:100vw;height:100vh;touch-action:none;cursor:pointer}
 #hud{position:fixed;inset:0;pointer-events:none;z-index:2}
 #score{position:absolute;top:20px;left:50%;transform:translateX(-50%);
 font-size:clamp(24px,5vw,38px);font-weight:800;letter-spacing:4px;
-text-shadow:0 0 12px var(--cyan)}
+text-shadow:0 0 12px var(--cyan);transition:transform .12s}
+#score.bump{transform:translateX(-50%) scale(1.25)}
 #direction{position:absolute;top:67px;left:50%;transform:translateX(-50%);
 font-size:11px;opacity:.5;letter-spacing:3px}
+#combo{position:absolute;top:86px;left:50%;transform:translateX(-50%);
+font-size:13px;font-weight:800;letter-spacing:3px;color:var(--gold);
+text-shadow:0 0 10px var(--gold);opacity:0;transition:opacity .2s}
+#combo.on{opacity:1}
+#powerups{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);
+font-size:12px;letter-spacing:3px;opacity:.8;white-space:nowrap}
+#banner{position:absolute;top:32%;left:50%;transform:translate(-50%,-50%);
+font-size:clamp(26px,7vw,48px);font-weight:900;letter-spacing:8px;
+color:var(--cyan);text-shadow:0 0 18px var(--cyan);opacity:0;
+transition:opacity .35s;white-space:nowrap}
+#banner.on{opacity:1}
+#muteBtn{position:fixed;top:16px;right:16px;z-index:6;width:42px;height:42px;
+border-radius:50%;border:1px solid rgba(56,245,255,.35);
+background:rgba(3,5,13,.5);color:var(--white);font-size:18px;cursor:pointer;
+display:flex;align-items:center;justify-content:center;padding:0}
+#muteBtn:hover{border-color:var(--cyan)}
 .screen{position:fixed;inset:0;z-index:5;display:flex;align-items:center;
-justify-content:center;flex-direction:column;text-align:center;
+justify-content:center;flex-direction:column;text-align:center;padding:16px;
 background:radial-gradient(circle at center,rgba(20,50,110,.15),transparent 45%),
 rgba(3,5,13,.72);backdrop-filter:blur(3px);cursor:pointer}
 .hidden{display:none!important}
@@ -32,9 +50,15 @@ text-shadow:0 0 10px var(--cyan),0 0 35px rgba(56,245,255,.55)}
 letter-spacing:5px;opacity:.65;text-transform:uppercase}
 .prompt{font-size:clamp(15px,4vw,20px);letter-spacing:4px;
 text-transform:uppercase;animation:pulse 1.5s ease-in-out infinite}
-.hint{margin-top:16px;font-size:12px;opacity:.4;letter-spacing:2px}
+.hint{margin-top:16px;font-size:12px;opacity:.4;letter-spacing:2px;line-height:1.8}
 .final-score{font-size:clamp(22px,5vw,34px);margin-bottom:8px;letter-spacing:3px}
-.best{margin-bottom:40px;opacity:.6;letter-spacing:3px}
+.best{margin-bottom:10px;opacity:.6;letter-spacing:3px}
+.stats{margin-bottom:34px;opacity:.45;font-size:13px;letter-spacing:2px}
+.new-record{margin-bottom:12px;color:var(--gold);font-weight:800;
+letter-spacing:4px;text-shadow:0 0 12px var(--gold);animation:pulse 1s ease-in-out infinite}
+.legend{display:flex;gap:22px;justify-content:center;margin:-18px 0 36px;
+font-size:12px;letter-spacing:2px;opacity:.6;flex-wrap:wrap}
+.legend span b{font-weight:800}
 @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
 </style>
 </head>
@@ -44,19 +68,36 @@ text-transform:uppercase;animation:pulse 1.5s ease-in-out infinite}
 <div id="hud">
   <div id="score">0</div>
   <div id="direction">ÓRBITA →</div>
+  <div id="combo">COMBO x2</div>
+  <div id="powerups"></div>
+  <div id="banner"></div>
 </div>
+
+<button id="muteBtn" aria-label="Silenciar">🔊</button>
 
 <div id="startScreen" class="screen">
   <h1>ÓRBITA</h1>
   <div class="subtitle">Sobrevive. Gira. Recoge.</div>
+  <div class="legend">
+    <span><b style="color:#eafcff">★</b> Estrella · combo</span>
+    <span><b style="color:#38f5ff">◎</b> Escudo</span>
+    <span><b style="color:#ff3cac">◷</b> Cámara lenta</span>
+  </div>
   <div class="prompt">Pulsa para empezar</div>
-  <div class="hint">Clic · Toque · Espacio</div>
+  <div class="hint">Clic · Toque · Espacio para cambiar de sentido<br>P pausa · M sonido</div>
+</div>
+
+<div id="pauseScreen" class="screen hidden">
+  <h1 style="font-size:clamp(45px,11vw,90px)">PAUSA</h1>
+  <div class="prompt">Pulsa para continuar</div>
 </div>
 
 <div id="gameOverScreen" class="screen hidden">
   <h1 style="font-size:clamp(45px,11vw,90px)">FIN</h1>
+  <div id="newRecord" class="new-record hidden">¡NUEVO RÉCORD!</div>
   <div class="final-score">PUNTUACIÓN: <span id="finalScore">0</span></div>
   <div class="best">RÉCORD: <span id="bestScore">0</span></div>
+  <div class="stats">NIVEL <span id="finalLevel">1</span> · COMBO MÁX x<span id="finalCombo">0</span></div>
   <div class="prompt">Pulsa para reiniciar</div>
   <div class="hint">Clic · Toque · Espacio</div>
 </div>
@@ -77,7 +118,17 @@ const CONFIG = {
   doubleAsteroidChance: 0.12,
   orbitRadiusRatio: 0.30,
   planetRadiusRatio: 0.105,
-  starRadius: 6
+  starRadius: 6,
+  starsPerLevel: 10,
+  comboWindow: 3500,
+  maxMultiplier: 5,
+  nearMissDistance: 20,
+  powerupEvery: 7,
+  powerupLifetime: 9000,
+  slowDuration: 5000,
+  slowFactor: 0.45,
+  invulnerableTime: 1200,
+  restartDelay: 650
 };
 
 const COLORS = {
@@ -87,8 +138,14 @@ const COLORS = {
   pink:"#ff3cac",
   white:"#eafcff",
   asteroid:"#ff5577",
-  planet:"#172b68"
+  planet:"#172b68",
+  gold:"#ffd84d"
 };
+
+// Tinte del fondo por nivel (r,g,b)
+const LEVEL_TINTS = [
+  "25,55,130","70,30,130","15,95,110","120,30,80","30,100,60","120,80,20"
+];
 
 /* =========================
    ELEMENTOS
@@ -96,11 +153,19 @@ const COLORS = {
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const startScreen = document.getElementById("startScreen");
+const pauseScreen = document.getElementById("pauseScreen");
 const gameOverScreen = document.getElementById("gameOverScreen");
 const scoreElement = document.getElementById("score");
 const directionElement = document.getElementById("direction");
+const comboElement = document.getElementById("combo");
+const powerupsElement = document.getElementById("powerups");
+const bannerElement = document.getElementById("banner");
+const muteButton = document.getElementById("muteBtn");
 const finalScoreElement = document.getElementById("finalScore");
 const bestScoreElement = document.getElementById("bestScore");
+const finalLevelElement = document.getElementById("finalLevel");
+const finalComboElement = document.getElementById("finalCombo");
+const newRecordElement = document.getElementById("newRecord");
 
 /* =========================
    ESTADO
@@ -109,26 +174,43 @@ let W = 0, H = 0, DPR = 1;
 let gameState = "start";
 let score = 0;
 let bestScore = 0;
+let collected = 0;
+let level = 1;
+let combo = 0;
+let maxCombo = 0;
+let comboTimer = 0;
+let shield = false;
+let invulnerableTimer = 0;
+let slowTimer = 0;
 let angle = -Math.PI / 2;
 let direction = 1;
 let asteroids = [];
 let stars = [];
+let powerups = [];
 let particles = [];
+let floatingTexts = [];
 let trail = [];
 let backgroundStars = [];
 let asteroidTimer = 0;
 let elapsed = 0;
 let lastTime = 0;
+let shake = 0;
+let flash = 0;
+let inputLockUntil = 0;
+let bannerTimeout = null;
+let muted = false;
 
 /* =========================
-   RÉCORD SEGURO
+   RÉCORD Y AJUSTES SEGUROS
 ========================= */
 try {
   bestScore = Number(localStorage.getItem("orbitaBest") || 0);
+  muted = localStorage.getItem("orbitaMuted") === "1";
 } catch (e) {
   bestScore = 0;
 }
 bestScoreElement.textContent = bestScore;
+muteButton.textContent = muted ? "🔇" : "🔊";
 
 /* =========================
    UTILIDADES
@@ -157,13 +239,93 @@ function orbitRadius(){
   return Math.min(W,H) * CONFIG.orbitRadiusRatio;
 }
 
-function shipPosition(){
+function orbitPoint(a){
   const c = center();
   const r = orbitRadius();
   return {
-    x:c.x + Math.cos(angle)*r,
-    y:c.y + Math.sin(angle)*r
+    x:c.x + Math.cos(a)*r,
+    y:c.y + Math.sin(a)*r
   };
+}
+
+function shipPosition(){
+  return orbitPoint(angle);
+}
+
+function vibrate(pattern){
+  try{
+    if(navigator.vibrate)navigator.vibrate(pattern);
+  }catch(e){}
+}
+
+/* =========================
+   SONIDO (WebAudio sintetizado)
+========================= */
+let audio = null;
+
+function initAudio(){
+  if(audio)return;
+  try{
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if(AudioContext)audio = new AudioContext();
+  }catch(e){
+    audio = null;
+  }
+}
+
+function tone(freq,duration,type="sine",volume=.15,slideTo=null){
+  if(!audio || muted)return;
+  if(audio.state==="suspended")audio.resume();
+  const t = audio.currentTime;
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq,t);
+  if(slideTo)osc.frequency.exponentialRampToValueAtTime(slideTo,t+duration);
+  gain.gain.setValueAtTime(volume,t);
+  gain.gain.exponentialRampToValueAtTime(.0001,t+duration);
+  osc.connect(gain).connect(audio.destination);
+  osc.start(t);
+  osc.stop(t+duration);
+}
+
+function noise(duration,volume=.3){
+  if(!audio || muted)return;
+  const t = audio.currentTime;
+  const length = Math.floor(audio.sampleRate*duration);
+  const buffer = audio.createBuffer(1,length,audio.sampleRate);
+  const data = buffer.getChannelData(0);
+  for(let i=0;i<length;i++){
+    data[i] = (Math.random()*2-1)*(1-i/length);
+  }
+  const source = audio.createBufferSource();
+  const filter = audio.createBiquadFilter();
+  const gain = audio.createGain();
+  source.buffer = buffer;
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(1800,t);
+  filter.frequency.exponentialRampToValueAtTime(120,t+duration);
+  gain.gain.setValueAtTime(volume,t);
+  source.connect(filter).connect(gain).connect(audio.destination);
+  source.start(t);
+}
+
+const SFX = {
+  flip(){tone(420,.06,"triangle",.06);},
+  collect(n){tone(660+n*90,.14,"sine",.14,990+n*120);},
+  nearMiss(){tone(1200,.08,"square",.04,1600);},
+  powerup(){tone(520,.12,"triangle",.12,1040);setTimeout(()=>tone(780,.18,"triangle",.1,1560),90);},
+  shieldBreak(){tone(300,.25,"sawtooth",.1,80);noise(.2,.15);},
+  levelUp(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>tone(f,.16,"triangle",.09),i*80));},
+  explosion(){noise(.7,.4);tone(140,.5,"sawtooth",.12,40);}
+};
+
+function toggleMute(){
+  muted = !muted;
+  muteButton.textContent = muted ? "🔇" : "🔊";
+  try{
+    localStorage.setItem("orbitaMuted",muted ? "1" : "0");
+  }catch(e){}
 }
 
 /* =========================
@@ -206,18 +368,21 @@ function drawBackground(time){
   ctx.fillRect(0,0,W,H);
 
   const c = center();
+  const tint = LEVEL_TINTS[(level-1)%LEVEL_TINTS.length];
   const gradient = ctx.createRadialGradient(
     c.x,c.y,0,c.x,c.y,Math.max(W,H)*.7
   );
-  gradient.addColorStop(0,"rgba(25,55,130,.16)");
-  gradient.addColorStop(.45,"rgba(8,15,40,.08)");
+  gradient.addColorStop(0,`rgba(${tint},.2)`);
+  gradient.addColorStop(.45,`rgba(${tint},.07)`);
   gradient.addColorStop(1,"rgba(0,0,0,0)");
   ctx.fillStyle = gradient;
   ctx.fillRect(0,0,W,H);
 
+  // En cámara lenta las estrellas del fondo se mueven menos
+  const twinkleSpeed = slowTimer>0 ? .0004 : .001;
   for(const star of backgroundStars){
     const alpha = star.alpha +
-      Math.sin(time*.001*star.twinkle+star.phase)*.15;
+      Math.sin(time*twinkleSpeed*star.twinkle+star.phase)*.15;
     ctx.globalAlpha = clamp(alpha,.05,1);
     ctx.fillStyle = COLORS.white;
     ctx.beginPath();
@@ -235,7 +400,7 @@ function drawOrbit(){
   const r = orbitRadius();
 
   ctx.save();
-  ctx.strokeStyle = "rgba(56,245,255,.13)";
+  ctx.strokeStyle = slowTimer>0 ? "rgba(255,60,172,.22)" : "rgba(56,245,255,.13)";
   ctx.lineWidth = 1;
   ctx.setLineDash([3,8]);
   ctx.beginPath();
@@ -299,20 +464,38 @@ function drawPlanet(){
 /* =========================
    NAVE
 ========================= */
-function drawShip(){
+function drawShip(time){
   const ship = shipPosition();
+  const trailColor = slowTimer>0 ? COLORS.pink : COLORS.cyan;
 
   for(let i=0;i<trail.length;i++){
     const p = trail[i];
     const alpha = (i/trail.length)*.35;
     const size = 2+(i/trail.length)*3;
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = COLORS.cyan;
+    ctx.fillStyle = trailColor;
     ctx.beginPath();
     ctx.arc(p.x,p.y,size,0,Math.PI*2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+
+  // Parpadeo durante la invulnerabilidad
+  if(invulnerableTimer>0 && Math.floor(time/80)%2===0)return;
+
+  if(shield){
+    const pulse = 1+Math.sin(time*.008)*.1;
+    ctx.save();
+    ctx.strokeStyle = COLORS.cyan;
+    ctx.shadowColor = COLORS.cyan;
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = .75;
+    ctx.beginPath();
+    ctx.arc(ship.x,ship.y,19*pulse,0,Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   const rotation = angle + direction*Math.PI/2;
 
@@ -341,7 +524,7 @@ function drawShip(){
   ctx.fillStyle = COLORS.pink;
   ctx.beginPath();
   ctx.moveTo(-7,-3);
-  ctx.lineTo(-16,0);
+  ctx.lineTo(-16-Math.random()*4,0);
   ctx.lineTo(-7,3);
   ctx.closePath();
   ctx.fill();
@@ -388,19 +571,21 @@ function createAsteroid(){
     size,
     rotation:rand(0,Math.PI*2),
     rotationSpeed:rand(-.025,.025),
-    points
+    points,
+    nearMissed:false
   });
 }
 
 function updateAsteroids(dt){
+  const c = center();
   for(let i=asteroids.length-1;i>=0;i--){
     const a = asteroids[i];
     a.x += a.vx*dt;
     a.y += a.vy*dt;
     a.rotation += a.rotationSpeed*dt;
 
-    const c = center();
     if(distance(a.x,a.y,c.x,c.y)<planetRadius()*.65){
+      spawnBurst(a.x,a.y,10,[COLORS.asteroid],2.5);
       asteroids.splice(i,1);
     }
   }
@@ -436,24 +621,23 @@ function drawAsteroid(a){
    ESTRELLAS
 ========================= */
 function createStar(){
+  // Nunca aparece encima de la nave
+  const offset = rand(.9,Math.PI*2-.9);
   stars.push({
-    angle:Math.random()*Math.PI*2,
-    radius:orbitRadius(),
+    angle:angle+offset,
     pulse:Math.random()*Math.PI*2,
     rotation:Math.random()*Math.PI
   });
 }
 
 function drawStar(star,time){
-  const c = center();
   const pulse = 1+Math.sin(time*.005+star.pulse)*.18;
-  const x = c.x+Math.cos(star.angle)*star.radius;
-  const y = c.y+Math.sin(star.angle)*star.radius;
+  const p = orbitPoint(star.angle);
 
   ctx.save();
-  ctx.translate(x,y);
+  ctx.translate(p.x,p.y);
   ctx.rotate(star.rotation+time*.001);
-  ctx.shadowColor = COLORS.cyan;
+  ctx.shadowColor = combo>=2 ? COLORS.gold : COLORS.cyan;
   ctx.shadowBlur = 14;
   ctx.fillStyle = COLORS.white;
 
@@ -474,12 +658,74 @@ function drawStar(star,time){
 }
 
 /* =========================
-   PARTÍCULAS
+   POTENCIADORES
 ========================= */
-function spawnExplosion(x,y){
-  for(let i=0;i<45;i++){
+function createPowerup(){
+  const type = shield || Math.random()<.5 ? "slow" : "shield";
+  powerups.push({
+    type,
+    angle:angle+Math.PI+rand(-.6,.6),
+    life:CONFIG.powerupLifetime
+  });
+}
+
+function updatePowerups(ms){
+  for(let i=powerups.length-1;i>=0;i--){
+    powerups[i].life -= ms;
+    if(powerups[i].life<=0)powerups.splice(i,1);
+  }
+}
+
+function drawPowerup(p,time){
+  const pos = orbitPoint(p.angle);
+  const color = p.type==="shield" ? COLORS.cyan : COLORS.pink;
+  // Parpadea cuando está a punto de desaparecer
+  if(p.life<2000 && Math.floor(time/120)%2===0)return;
+
+  const bob = 1+Math.sin(time*.006)*.12;
+  ctx.save();
+  ctx.translate(pos.x,pos.y);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 16;
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+  ctx.arc(0,0,11*bob,0,Math.PI*2);
+  ctx.stroke();
+
+  if(p.type==="shield"){
+    ctx.beginPath();
+    ctx.arc(0,0,4.5*bob,0,Math.PI*2);
+    ctx.fill();
+  }else{
+    const hand = time*.01;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(Math.cos(hand)*7,Math.sin(hand)*7);
+    ctx.moveTo(0,0);
+    ctx.lineTo(0,-5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function updatePowerupHud(){
+  const parts = [];
+  if(shield)parts.push("◎ ESCUDO");
+  if(slowTimer>0)parts.push("◷ LENTO "+Math.ceil(slowTimer/1000)+"s");
+  powerupsElement.textContent = parts.join("   ");
+}
+
+/* =========================
+   PARTÍCULAS Y TEXTOS
+========================= */
+function spawnBurst(x,y,amount,colors,maxSpeed=6){
+  for(let i=0;i<amount;i++){
     const a = Math.random()*Math.PI*2;
-    const speed = rand(1,6);
+    const speed = rand(1,maxSpeed);
     particles.push({
       x,y,
       vx:Math.cos(a)*speed,
@@ -487,9 +733,13 @@ function spawnExplosion(x,y){
       life:1,
       decay:rand(.018,.045),
       size:rand(1,4),
-      color:Math.random()<.5 ? COLORS.cyan : COLORS.pink
+      color:colors[Math.floor(Math.random()*colors.length)]
     });
   }
+}
+
+function spawnExplosion(x,y){
+  spawnBurst(x,y,60,[COLORS.cyan,COLORS.pink,COLORS.white]);
 }
 
 function updateParticles(dt){
@@ -519,30 +769,156 @@ function drawParticles(){
   ctx.shadowBlur = 0;
 }
 
+function addFloatingText(x,y,text,color){
+  floatingTexts.push({x,y,text,color,life:1});
+}
+
+function updateFloatingTexts(dt){
+  for(let i=floatingTexts.length-1;i>=0;i--){
+    const t = floatingTexts[i];
+    t.y -= .8*dt;
+    t.life -= .02*dt;
+    if(t.life<=0)floatingTexts.splice(i,1);
+  }
+}
+
+function drawFloatingTexts(){
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.font = "800 14px Arial,Helvetica,sans-serif";
+  for(const t of floatingTexts){
+    ctx.globalAlpha = clamp(t.life,0,1);
+    ctx.fillStyle = t.color;
+    ctx.shadowColor = t.color;
+    ctx.shadowBlur = 10;
+    ctx.fillText(t.text,t.x,t.y);
+  }
+  ctx.restore();
+}
+
+/* =========================
+   HUD
+========================= */
+function addScore(points){
+  score += points;
+  scoreElement.textContent = score;
+  scoreElement.classList.add("bump");
+  setTimeout(()=>scoreElement.classList.remove("bump"),120);
+}
+
+function updateComboHud(){
+  if(combo>=2){
+    comboElement.textContent = "COMBO x"+Math.min(combo,CONFIG.maxMultiplier);
+    comboElement.classList.add("on");
+  }else{
+    comboElement.classList.remove("on");
+  }
+}
+
+function showBanner(text){
+  bannerElement.textContent = text;
+  bannerElement.classList.add("on");
+  clearTimeout(bannerTimeout);
+  bannerTimeout = setTimeout(()=>bannerElement.classList.remove("on"),1300);
+}
+
 /* =========================
    COLISIONES
 ========================= */
+function collectStar(index){
+  const star = stars[index];
+  const p = orbitPoint(star.angle);
+  stars.splice(index,1);
+
+  combo = comboTimer>0 ? combo+1 : 1;
+  comboTimer = CONFIG.comboWindow;
+  maxCombo = Math.max(maxCombo,combo);
+
+  const multiplier = Math.min(combo,CONFIG.maxMultiplier);
+  addScore(multiplier);
+  collected++;
+
+  addFloatingText(p.x,p.y-14,"+"+multiplier,multiplier>1 ? COLORS.gold : COLORS.white);
+  spawnBurst(p.x,p.y,14,multiplier>1 ? [COLORS.gold,COLORS.white] : [COLORS.cyan,COLORS.white],3);
+  SFX.collect(multiplier);
+  updateComboHud();
+
+  const newLevel = 1+Math.floor(collected/CONFIG.starsPerLevel);
+  if(newLevel>level){
+    level = newLevel;
+    showBanner("NIVEL "+level);
+    SFX.levelUp();
+    flash = .25;
+  }
+
+  if(collected%CONFIG.powerupEvery===0 && powerups.length===0){
+    createPowerup();
+  }
+}
+
+function collectPowerup(index){
+  const p = powerups[index];
+  const pos = orbitPoint(p.angle);
+  powerups.splice(index,1);
+
+  if(p.type==="shield"){
+    shield = true;
+    addFloatingText(pos.x,pos.y-14,"ESCUDO",COLORS.cyan);
+  }else{
+    slowTimer = CONFIG.slowDuration;
+    addFloatingText(pos.x,pos.y-14,"CÁMARA LENTA",COLORS.pink);
+  }
+  spawnBurst(pos.x,pos.y,20,[p.type==="shield" ? COLORS.cyan : COLORS.pink,COLORS.white],3.5);
+  SFX.powerup();
+  vibrate(20);
+}
+
 function checkCollisions(){
   const ship = shipPosition();
 
-  for(const a of asteroids){
-    if(distance(ship.x,ship.y,a.x,a.y)<a.size+8){
+  for(let i=asteroids.length-1;i>=0;i--){
+    const a = asteroids[i];
+    const d = distance(ship.x,ship.y,a.x,a.y);
+
+    if(d<a.size+8){
+      if(invulnerableTimer>0)continue;
+
+      if(shield){
+        shield = false;
+        invulnerableTimer = CONFIG.invulnerableTime;
+        spawnBurst(a.x,a.y,30,[COLORS.cyan,COLORS.asteroid,COLORS.white],5);
+        asteroids.splice(i,1);
+        shake = 7;
+        SFX.shieldBreak();
+        vibrate(60);
+        continue;
+      }
+
       spawnExplosion(ship.x,ship.y);
       endGame();
       return;
     }
+
+    // Esquivar por poco da un punto extra
+    if(!a.nearMissed && d<a.size+8+CONFIG.nearMissDistance && invulnerableTimer<=0){
+      a.nearMissed = true;
+      addScore(1);
+      addFloatingText(ship.x,ship.y-22,"¡CERCA! +1",COLORS.pink);
+      SFX.nearMiss();
+    }
   }
 
   for(let i=stars.length-1;i>=0;i--){
-    const star = stars[i];
-    const c = center();
-    const sx = c.x+Math.cos(star.angle)*star.radius;
-    const sy = c.y+Math.sin(star.angle)*star.radius;
+    const p = orbitPoint(stars[i].angle);
+    if(distance(ship.x,ship.y,p.x,p.y)<17){
+      collectStar(i);
+    }
+  }
 
-    if(distance(ship.x,ship.y,sx,sy)<17){
-      stars.splice(i,1);
-      score++;
-      scoreElement.textContent = score;
+  for(let i=powerups.length-1;i>=0;i--){
+    const p = orbitPoint(powerups[i].angle);
+    if(distance(ship.x,ship.y,p.x,p.y)<20){
+      collectPowerup(i);
     }
   }
 }
@@ -551,11 +927,12 @@ function checkCollisions(){
    BUCLE DEL JUEGO
 ========================= */
 function update(dt){
-  elapsed += dt*16.67;
+  const ms = dt*16.67;
+  elapsed += ms;
 
   const speed =
     CONFIG.orbitSpeed +
-    Math.floor(score/10)*CONFIG.speedIncrease;
+    Math.floor(collected/10)*CONFIG.speedIncrease;
 
   angle += direction*speed*dt;
 
@@ -563,11 +940,13 @@ function update(dt){
   trail.push({x:ship.x,y:ship.y});
   if(trail.length>18)trail.shift();
 
-  asteroidTimer += dt*16.67;
+  // La cámara lenta afecta a los asteroides, no a la nave
+  const worldDt = slowTimer>0 ? dt*CONFIG.slowFactor : dt;
+  asteroidTimer += worldDt*16.67;
 
   const interval = Math.max(
     CONFIG.minAsteroidInterval,
-    CONFIG.asteroidInterval-score*9
+    CONFIG.asteroidInterval-collected*9
   );
 
   if(asteroidTimer>=interval){
@@ -575,7 +954,7 @@ function update(dt){
     createAsteroid();
 
     if(Math.random()<
-      CONFIG.doubleAsteroidChance+score*.002){
+      CONFIG.doubleAsteroidChance+collected*.002){
       createAsteroid();
     }
   }
@@ -584,25 +963,48 @@ function update(dt){
     createStar();
   }
 
-  updateAsteroids(dt);
-  updateParticles(dt);
-  checkCollisions();
+  if(comboTimer>0){
+    comboTimer -= ms;
+    if(comboTimer<=0){
+      combo = 0;
+      updateComboHud();
+    }
+  }
+  if(slowTimer>0)slowTimer = Math.max(0,slowTimer-ms);
+  if(invulnerableTimer>0)invulnerableTimer -= ms;
 
-  directionElement.textContent =
-    direction===1 ? "ÓRBITA →" : "ÓRBITA ←";
+  updateAsteroids(worldDt);
+  updatePowerups(ms);
+  updateParticles(dt);
+  updateFloatingTexts(dt);
+  checkCollisions();
+  updatePowerupHud();
 }
 
 function draw(time){
+  ctx.save();
+  if(shake>0){
+    ctx.translate(rand(-shake,shake),rand(-shake,shake));
+  }
+
   drawBackground(time);
   drawOrbit();
 
   for(const star of stars)drawStar(star,time);
+  for(const p of powerups)drawPowerup(p,time);
   for(const asteroid of asteroids)drawAsteroid(asteroid);
 
   drawPlanet();
   drawParticles();
+  drawFloatingTexts();
 
-  if(gameState==="playing")drawShip();
+  if(gameState==="playing" || gameState==="paused")drawShip(time);
+  ctx.restore();
+
+  if(flash>0){
+    ctx.fillStyle = `rgba(234,252,255,${flash})`;
+    ctx.fillRect(0,0,W,H);
+  }
 }
 
 function loop(time){
@@ -613,8 +1015,14 @@ function loop(time){
 
   if(gameState==="playing"){
     update(delta);
-  }else{
+  }else if(gameState!=="paused"){
     updateParticles(delta);
+    updateFloatingTexts(delta);
+  }
+
+  if(gameState!=="paused"){
+    shake = Math.max(0,shake-.6*delta);
+    flash = Math.max(0,flash-.03*delta);
   }
 
   draw(time);
@@ -622,35 +1030,56 @@ function loop(time){
 }
 
 /* =========================
-   INICIO / FIN
+   INICIO / FIN / PAUSA
 ========================= */
 function startGame(){
   score=0;
+  collected=0;
+  level=1;
+  combo=0;
+  maxCombo=0;
+  comboTimer=0;
+  shield=false;
+  invulnerableTimer=0;
+  slowTimer=0;
   angle=-Math.PI/2;
   direction=1;
   asteroids=[];
   stars=[];
+  powerups=[];
   particles=[];
+  floatingTexts=[];
   trail=[];
   elapsed=0;
   asteroidTimer=0;
+  shake=0;
+  flash=0;
 
   scoreElement.textContent="0";
   directionElement.textContent="ÓRBITA →";
+  updateComboHud();
+  updatePowerupHud();
 
   createStar();
 
   gameState="playing";
   startScreen.classList.add("hidden");
   gameOverScreen.classList.add("hidden");
+  pauseScreen.classList.add("hidden");
 }
 
 function endGame(){
   if(gameState!=="playing")return;
 
   gameState="gameover";
+  shake = 14;
+  flash = .35;
+  inputLockUntil = performance.now()+CONFIG.restartDelay;
+  SFX.explosion();
+  vibrate([80,40,120]);
 
-  if(score>bestScore){
+  const isRecord = score>bestScore;
+  if(isRecord){
     bestScore=score;
     try{
       localStorage.setItem("orbitaBest",String(bestScore));
@@ -659,6 +1088,11 @@ function endGame(){
 
   finalScoreElement.textContent=score;
   bestScoreElement.textContent=bestScore;
+  finalLevelElement.textContent=level;
+  finalComboElement.textContent=maxCombo;
+  newRecordElement.classList.toggle("hidden",!isRecord);
+  comboElement.classList.remove("on");
+  powerupsElement.textContent="";
 
   setTimeout(()=>{
     if(gameState==="gameover"){
@@ -667,27 +1101,66 @@ function endGame(){
   },500);
 }
 
+function pauseGame(){
+  if(gameState!=="playing")return;
+  gameState="paused";
+  pauseScreen.classList.remove("hidden");
+}
+
+function resumeGame(){
+  if(gameState!=="paused")return;
+  gameState="playing";
+  pauseScreen.classList.add("hidden");
+}
+
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden)pauseGame();
+});
+
 /* =========================
    CONTROL
 ========================= */
 function handleInput(event){
   if(event.type==="keydown"){
+    if(event.code==="KeyM"){
+      toggleMute();
+      return;
+    }
+    if(event.code==="KeyP" || event.code==="Escape"){
+      if(gameState==="playing")pauseGame();
+      else if(gameState==="paused")resumeGame();
+      return;
+    }
     if(event.code!=="Space")return;
     event.preventDefault();
+    if(event.repeat)return;
   }else{
     event.preventDefault();
   }
 
+  initAudio();
+
   if(gameState==="start"){
     startGame();
   }else if(gameState==="gameover"){
+    // Evita reiniciar sin querer al pulsar justo al morir
+    if(performance.now()<inputLockUntil)return;
     startGame();
+  }else if(gameState==="paused"){
+    resumeGame();
   }else if(gameState==="playing"){
     direction*=-1;
     directionElement.textContent =
       direction===1 ? "ÓRBITA →" : "ÓRBITA ←";
+    SFX.flip();
   }
 }
+
+muteButton.addEventListener("pointerdown",event=>{
+  event.stopPropagation();
+  initAudio();
+  toggleMute();
+});
 
 window.addEventListener(
   "pointerdown",
